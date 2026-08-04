@@ -177,9 +177,12 @@ public final class Main {
         int i = 1;
         for (GatewayServer server : cluster.getServers()) {
             GatewayConfig config = server.getConfig();
+            String effectiveModel = config.getForceModel() != null
+                    ? config.getForceModel() + " (force)"
+                    : config.getBackend().getModel();
             System.out.println("  [" + (i++) + "] " + server.getAddress()
                     + "  backend=" + config.getBackend().getType().id()
-                    + "  model=" + config.getBackend().getModel());
+                    + "  model=" + effectiveModel);
         }
         System.out.println("Press Ctrl+C to stop all.");
         Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {

@@ -194,14 +194,14 @@ public final class AnthropicChatModel implements ChatModel {
             if (m.getToolCallId() == null) {
                 return MessageParam.builder()
                         .role(MessageParam.Role.USER)
-                        .content(m.getContent())
+                        .content(nonNull(m.getContent()))
                         .build();
             }
             // tool 结果：Anthropic 用带 tool_result 块的 user 消息表达
             ContentBlockParam result = ContentBlockParam.ofToolResult(
                     ToolResultBlockParam.builder()
                             .toolUseId(m.getToolCallId())
-                            .content(m.getContent())
+                            .content(nonNull(m.getContent()))
                             .build());
             return MessageParam.builder()
                     .role(MessageParam.Role.USER)
@@ -214,7 +214,7 @@ public final class AnthropicChatModel implements ChatModel {
             ContentBlockParam result = ContentBlockParam.ofToolResult(
                     ToolResultBlockParam.builder()
                             .toolUseId(m.getToolCallId())
-                            .content(m.getContent())
+                            .content(nonNull(m.getContent()))
                             .build());
             return MessageParam.builder()
                     .role(MessageParam.Role.USER)
@@ -226,7 +226,7 @@ public final class AnthropicChatModel implements ChatModel {
         if (m.getToolCalls() == null || m.getToolCalls().isEmpty()) {
             return MessageParam.builder()
                     .role(MessageParam.Role.ASSISTANT)
-                    .content(m.getContent() == null ? "" : m.getContent())
+                    .content(nonNull(m.getContent()))
                     .build();
         }
         List<ContentBlockParam> blocks = new ArrayList<ContentBlockParam>();
@@ -245,6 +245,10 @@ public final class AnthropicChatModel implements ChatModel {
                 .role(MessageParam.Role.ASSISTANT)
                 .content(MessageParam.Content.ofBlockParams(blocks))
                 .build();
+    }
+
+    private static String nonNull(String s) {
+        return s == null ? "" : s;
     }
 
     private static ImageBlockParam toImageBlock(ContentPart p) {

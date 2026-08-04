@@ -112,6 +112,9 @@ public final class OpenAIResponsesModel implements ChatModel {
                 if (instructions == null) {
                     instructions = new StringBuilder();
                 }
+                if (m.getContent() == null) {
+                    continue;
+                }
                 if (instructions.length() > 0) {
                     instructions.append('\n');
                 }
@@ -125,7 +128,7 @@ public final class OpenAIResponsesModel implements ChatModel {
                     items.add(ResponseInputItem.ofEasyInputMessage(
                             EasyInputMessage.builder()
                                     .role(EasyInputMessage.Role.ASSISTANT)
-                                    .content(EasyInputMessage.Content.ofTextInput(m.getContent()))
+                                    .content(EasyInputMessage.Content.ofTextInput(nonNull(m.getContent())))
                                     .build()));
                 } else {
                     for (ToolCall tc : m.getToolCalls()) {
@@ -141,7 +144,7 @@ public final class OpenAIResponsesModel implements ChatModel {
                 items.add(ResponseInputItem.ofFunctionCallOutput(
                         ResponseInputItem.FunctionCallOutput.builder()
                                 .callId(m.getToolCallId())
-                                .output(m.getContent())
+                                .output(nonNull(m.getContent()))
                                 .build()));
             }
         }
@@ -187,8 +190,12 @@ public final class OpenAIResponsesModel implements ChatModel {
         }
         return EasyInputMessage.builder()
                 .role(EasyInputMessage.Role.USER)
-                .content(EasyInputMessage.Content.ofTextInput(m.getContent()))
+                .content(EasyInputMessage.Content.ofTextInput(nonNull(m.getContent())))
                 .build();
+    }
+
+    private static String nonNull(String s) {
+        return s == null ? "" : s;
     }
 
     private static ResponseCreateParams.ToolChoice toToolChoice(ChatRequest request) {

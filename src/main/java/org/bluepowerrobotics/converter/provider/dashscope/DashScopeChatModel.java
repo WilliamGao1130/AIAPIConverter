@@ -136,7 +136,7 @@ public final class DashScopeChatModel implements ChatModel {
     private Message toDashScopeMessage(ChatMessage m) {
         Message.MessageBuilder<?, ?> b = Message.builder()
                 .role(m.getRole().wire())
-                .content(m.getContent());
+                .content(m.getContent() == null ? "" : m.getContent());
         if (m.hasContentParts()) {
             List<MessageContentBase> contents = new ArrayList<MessageContentBase>();
             for (ContentPart part : m.getContentParts()) {

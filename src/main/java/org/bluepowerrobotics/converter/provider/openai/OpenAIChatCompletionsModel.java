@@ -144,7 +144,9 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
     private ChatCompletionMessageParam toMessageParam(ChatMessage m) {
         if (m.getRole() == ChatRole.SYSTEM) {
             return ChatCompletionMessageParam.ofSystem(
-                    ChatCompletionSystemMessageParam.builder().content(m.getContent()).build());
+                    ChatCompletionSystemMessageParam.builder()
+                            .content(nonNull(m.getContent()))
+                            .build());
         }
         if (m.getRole() == ChatRole.USER) {
             if (m.hasContentParts()) {
@@ -155,18 +157,20 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
                                 .build());
             }
             return ChatCompletionMessageParam.ofUser(
-                    ChatCompletionUserMessageParam.builder().content(m.getContent()).build());
+                    ChatCompletionUserMessageParam.builder()
+                            .content(nonNull(m.getContent()))
+                            .build());
         }
         if (m.getRole() == ChatRole.TOOL) {
             return ChatCompletionMessageParam.ofTool(
                     ChatCompletionToolMessageParam.builder()
                             .toolCallId(m.getToolCallId())
-                            .content(m.getContent())
+                            .content(nonNull(m.getContent()))
                             .build());
         }
         // assistant
         ChatCompletionAssistantMessageParam.Builder ab = ChatCompletionAssistantMessageParam.builder()
-                .content(m.getContent());
+                .content(nonNull(m.getContent()));
         if (m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
             List<ChatCompletionMessageToolCall> calls =
                     new ArrayList<ChatCompletionMessageToolCall>();
@@ -183,6 +187,11 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
             ab.toolCalls(calls);
         }
         return ChatCompletionMessageParam.ofAssistant(ab.build());
+    }
+
+    /** OpenAI 各消息角色要求 content 非空；统一 null 归一化为空串。 */
+    private static String nonNull(String s) {
+        return s == null ? "" : s;
     }
 
     private static List<ChatCompletionContentPart> toContentParts(ChatMessage m) {
