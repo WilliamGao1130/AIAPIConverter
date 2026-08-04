@@ -70,15 +70,23 @@ public final class DashScopeChatModel implements ChatModel {
     public void stream(ChatRequest request, ChatStreamListener listener) {
         try {
             Flowable<GenerationResult> flowable = generation.streamCall(buildParam(request, true));
+            List<ToolCall> toolCalls = new ArrayList<ToolCall>();
             for (GenerationResult chunk : flowable.blockingIterable()) {
                 String delta = extractContent(chunk);
                 FinishReason fr = extractFinishReason(chunk);
+                List<ToolCall> calls = extractToolCalls(chunk);
+                if (calls != null) {
+                    toolCalls.addAll(calls);
+                }
                 if (delta != null && !delta.isEmpty()) {
                     listener.onChunk(new ChatChunk(delta, null));
                 }
                 if (fr != null) {
                     listener.onChunk(new ChatChunk(null, fr));
                 }
+            }
+            if (!toolCalls.isEmpty()) {
+                listener.onChunk(new ChatChunk(null, null, toolCalls, FinishReason.TOOL_CALLS));
             }
             listener.onDone();
         } catch (Throwable t) {
@@ -237,6 +245,7 @@ public final class DashScopeChatModel implements ChatModel {
 
     private ChatResponse toResponse(GenerationResult r, String model) {
         String content = null;
+        String reasoning = null;
         List<ToolCall> toolCalls = new ArrayList<ToolCall>();
         FinishReason fr = null;
 
@@ -247,6 +256,7 @@ public final class DashScopeChatModel implements ChatModel {
                 if (choice.getMessage() != null) {
                     Message msg = choice.getMessage();
                     content = msg.getContent();
+                    reasoning = msg.getReasoningContent();
                     if (msg.getToolCalls() != null) {
                         for (ToolCallBase base : msg.getToolCalls()) {
                             if (base instanceof ToolCallFunction) {
@@ -277,6 +287,7 @@ public final class DashScopeChatModel implements ChatModel {
         }
         return ChatResponse.builder()
                 .content(content)
+                .reasoning(reasoning)
                 .toolCalls(toolCalls)
                 .finishReason(fr)
                 .usage(usage)
@@ -307,6 +318,29 @@ public final class DashScopeChatModel implements ChatModel {
             return FinishReason.fromWire(output.getChoices().get(0).getFinishReason());
         }
         return FinishReason.fromWire(output.getFinishReason());
+    }
+
+    private List<ToolCall> extractToolCalls(GenerationResult chunk) {
+        GenerationOutput output = chunk.getOutput();
+        if (output == null || output.getChoices() == null || output.getChoices().isEmpty()) {
+            return null;
+        }
+        Message msg = output.getChoices().get(0).getMessage();
+        if (msg == null || msg.getToolCalls() == null) {
+            return null;
+        }
+        List<ToolCall> out = new ArrayList<ToolCall>();
+        for (ToolCallBase base : msg.getToolCalls()) {
+            if (base instanceof ToolCallFunction) {
+                ToolCallFunction f = (ToolCallFunction) base;
+                ToolCallFunction.CallFunction fn = f.getFunction();
+                out.add(new ToolCall(
+                        f.getId(),
+                        fn == null ? null : fn.getName(),
+                        fn == null ? null : fn.getArguments()));
+            }
+        }
+        return out.isEmpty() ? null : out;
     }
 
     @Override

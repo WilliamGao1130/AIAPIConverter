@@ -7,6 +7,7 @@ import java.util.List;
 /** 统一的对话响应。 */
 public final class ChatResponse {
     private final String content;
+    private final String reasoning;
     private final List<ToolCall> toolCalls;
     private final FinishReason finishReason;
     private final Usage usage;
@@ -16,6 +17,7 @@ public final class ChatResponse {
 
     private ChatResponse(Builder b) {
         this.content = b.content;
+        this.reasoning = b.reasoning;
         this.toolCalls = b.toolCalls == null
                 ? Collections.<ToolCall>emptyList()
                 : Collections.unmodifiableList(new ArrayList<ToolCall>(b.toolCalls));
@@ -32,6 +34,11 @@ public final class ChatResponse {
 
     public String getContent() {
         return content;
+    }
+
+    /** 思考内容（非流式完整文本）；模型未返回思考时为 null。 */
+    public String getReasoning() {
+        return reasoning;
     }
 
     public List<ToolCall> getToolCalls() {
@@ -65,6 +72,7 @@ public final class ChatResponse {
 
     public static final class Builder {
         private String content;
+        private String reasoning;
         private List<ToolCall> toolCalls;
         private FinishReason finishReason;
         private Usage usage;
@@ -77,6 +85,11 @@ public final class ChatResponse {
 
         public Builder content(String content) {
             this.content = content;
+            return this;
+        }
+
+        public Builder reasoning(String reasoning) {
+            this.reasoning = reasoning;
             return this;
         }
 

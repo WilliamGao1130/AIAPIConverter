@@ -31,6 +31,7 @@ import com.openai.models.chat.completions.ChatCompletionNamedToolChoice;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,6 +49,7 @@ import org.bluepowerrobotics.converter.core.ToolDefinition;
 import org.bluepowerrobotics.converter.core.Usage;
 import org.bluepowerrobotics.converter.provider.ProviderConfig;
 import org.bluepowerrobotics.converter.util.Json;
+import org.bluepowerrobotics.converter.util.ToolCallAccumulator;
 
 /**
  * OpenAI Chat Completions API 适配器，基于官方 com.openai:openai-java。
@@ -86,13 +88,43 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
             ChatCompletionCreateParams params = buildParams(request);
             StreamResponse<ChatCompletionChunk> sr =
                     clientFor(request).chat().completions().createStreaming(params);
+            Map<Long, ToolCallAccumulator> toolCallAccumulators =
+                    new LinkedHashMap<Long, ToolCallAccumulator>();
             try (java.util.stream.Stream<ChatCompletionChunk> stream = sr.stream()) {
                 Iterator<ChatCompletionChunk> it = stream.iterator();
                 while (it.hasNext()) {
                     ChatCompletionChunk chunk = it.next();
                     for (ChatCompletionChunk.Choice choice : chunk.choices()) {
-                        if (choice.delta().content().isPresent()) {
-                            listener.onChunk(new ChatChunk(choice.delta().content().get(), null));
+                        ChatCompletionChunk.Choice.Delta delta = choice.delta();
+                        if (delta.content().isPresent()) {
+                            listener.onChunk(new ChatChunk(delta.content().get(), null));
+                        }
+                        String reasoning = reasoningContent(delta._additionalProperties());
+                        if (reasoning != null) {
+                            listener.onChunk(new ChatChunk(null, reasoning, null));
+                        }
+                        if (delta.toolCalls().isPresent()) {
+                            for (ChatCompletionChunk.Choice.Delta.ToolCall toolCall
+                                    : delta.toolCalls().get()) {
+                                ToolCallAccumulator acc = toolCallAccumulators.get(toolCall.index());
+                                if (acc == null) {
+                                    acc = new ToolCallAccumulator();
+                                    toolCallAccumulators.put(toolCall.index(), acc);
+                                }
+                                if (toolCall.id().isPresent()) {
+                                    acc.id = toolCall.id().get();
+                                }
+                                if (toolCall.function().isPresent()) {
+                                    ChatCompletionChunk.Choice.Delta.ToolCall.Function function =
+                                            toolCall.function().get();
+                                    if (function.name().isPresent()) {
+                                        acc.name = function.name().get();
+                                    }
+                                    if (function.arguments().isPresent()) {
+                                        acc.args.append(function.arguments().get());
+                                    }
+                                }
+                            }
                         }
                         if (choice.finishReason().isPresent()) {
                             listener.onChunk(new ChatChunk(
@@ -101,10 +133,24 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
                     }
                 }
             }
+            emitToolCalls(listener, toolCallAccumulators);
             listener.onDone();
         } catch (Throwable t) {
             listener.onError(t);
         }
+    }
+
+    /** 本轮流式结束：把累积的工具调用拼成一个携带 toolCalls 的收尾块。 */
+    private static void emitToolCalls(ChatStreamListener listener,
+                                      Map<Long, ToolCallAccumulator> accumulators) {
+        if (accumulators.isEmpty()) {
+            return;
+        }
+        List<ToolCall> calls = new ArrayList<ToolCall>();
+        for (ToolCallAccumulator acc : accumulators.values()) {
+            calls.add(acc.toToolCall());
+        }
+        listener.onChunk(new ChatChunk(null, null, calls, FinishReason.TOOL_CALLS));
     }
 
     private ChatCompletionCreateParams buildParams(ChatRequest request) {
@@ -302,6 +348,7 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
 
     private ChatResponse toResponse(ChatCompletion c, String model) {
         String content = null;
+        String reasoning = null;
         List<ToolCall> toolCalls = new ArrayList<ToolCall>();
         FinishReason fr = null;
 
@@ -311,6 +358,7 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
             if (msg.content().isPresent()) {
                 content = msg.content().get();
             }
+            reasoning = reasoningContent(msg._additionalProperties());
             if (msg.toolCalls().isPresent()) {
                 for (ChatCompletionMessageToolCall tc : msg.toolCalls().get()) {
                     if (tc.isFunction()) {
@@ -330,6 +378,7 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
         }
         return ChatResponse.builder()
                 .content(content)
+                .reasoning(reasoning)
                 .toolCalls(toolCalls)
                 .finishReason(fr)
                 .usage(usage)
@@ -337,6 +386,25 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
                 .model(model)
                 .id(c.id())
                 .build();
+    }
+
+    /**
+     * 从 SDK 未识别的额外字段中提取思考内容（DeepSeek 等兼容端点通过
+     * reasoning_content 返回推理过程）。
+     */
+    private static String reasoningContent(
+            java.util.Map<String, com.openai.core.JsonValue> additionalProperties) {
+        if (additionalProperties == null) {
+            return null;
+        }
+        com.openai.core.JsonValue value = additionalProperties.get("reasoning_content");
+        if (value == null) {
+            return null;
+        }
+        java.util.Optional<?> opt = value.asString();
+        return opt.isPresent() && opt.get() instanceof String
+                ? (String) opt.get()
+                : null;
     }
 
     private static FinishReason toFinishReason(ChatCompletion.Choice.FinishReason fr) {

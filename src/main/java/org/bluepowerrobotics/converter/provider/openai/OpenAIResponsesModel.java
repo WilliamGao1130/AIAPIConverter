@@ -6,6 +6,8 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
 import com.openai.core.http.StreamResponse;
 import com.openai.models.responses.EasyInputMessage;
+import com.openai.models.responses.ResponseFunctionCallArgumentsDeltaEvent;
+import com.openai.models.responses.ResponseFunctionCallArgumentsDoneEvent;
 import com.openai.models.responses.FunctionTool;
 import com.openai.models.responses.ResponseFormatTextConfig;
 import com.openai.models.responses.ResponseFormatTextJsonSchemaConfig;
@@ -20,6 +22,7 @@ import com.openai.models.responses.ResponseInputItem;
 import com.openai.models.responses.ResponseInputText;
 import com.openai.models.responses.ResponseOutputItem;
 import com.openai.models.responses.ResponseOutputMessage;
+import com.openai.models.responses.ResponseReasoningItem;
 import com.openai.models.responses.ResponseStreamEvent;
 import com.openai.models.responses.ResponseTextConfig;
 import com.openai.models.responses.ResponseUsage;
@@ -44,6 +47,7 @@ import org.bluepowerrobotics.converter.core.ToolDefinition;
 import org.bluepowerrobotics.converter.core.Usage;
 import org.bluepowerrobotics.converter.provider.ProviderConfig;
 import org.bluepowerrobotics.converter.util.Json;
+import org.bluepowerrobotics.converter.util.ToolCallAccumulator;
 
 /**
  * OpenAI Responses API 适配器，基于官方 com.openai:openai-java。
@@ -80,12 +84,42 @@ public final class OpenAIResponsesModel implements ChatModel {
             ResponseCreateParams params = buildParams(request);
             StreamResponse<ResponseStreamEvent> sr =
                     clientFor(request).responses().createStreaming(params);
+            java.util.Map<String, ToolCallAccumulator> toolCallAccumulators =
+                    new java.util.LinkedHashMap<String, ToolCallAccumulator>();
             try (java.util.stream.Stream<ResponseStreamEvent> stream = sr.stream()) {
                 Iterator<ResponseStreamEvent> it = stream.iterator();
                 while (it.hasNext()) {
                     ResponseStreamEvent ev = it.next();
                     if (ev.isOutputTextDelta()) {
                         listener.onChunk(new ChatChunk(ev.asOutputTextDelta().delta(), null));
+                    } else if (ev.isReasoningSummaryTextDelta()) {
+                        listener.onChunk(new ChatChunk(
+                                null, ev.asReasoningSummaryTextDelta().delta(), null));
+                    } else if (ev.isReasoningTextDelta()) {
+                        listener.onChunk(new ChatChunk(
+                                null, ev.asReasoningTextDelta().delta(), null));
+                    } else if (ev.isFunctionCallArgumentsDelta()) {
+                        ResponseFunctionCallArgumentsDeltaEvent delta =
+                                ev.asFunctionCallArgumentsDelta();
+                        ToolCallAccumulator acc = toolCallAccumulators.get(delta.itemId());
+                        if (acc == null) {
+                            acc = new ToolCallAccumulator();
+                            acc.id = delta.itemId();
+                            toolCallAccumulators.put(delta.itemId(), acc);
+                        }
+                        acc.args.append(delta.delta());
+                    } else if (ev.isFunctionCallArgumentsDone()) {
+                        ResponseFunctionCallArgumentsDoneEvent done =
+                                ev.asFunctionCallArgumentsDone();
+                        ToolCallAccumulator acc = toolCallAccumulators.get(done.itemId());
+                        if (acc == null) {
+                            acc = new ToolCallAccumulator();
+                            toolCallAccumulators.put(done.itemId(), acc);
+                        }
+                        acc.id = done.itemId();
+                        acc.name = done.name();
+                        acc.args.setLength(0);
+                        acc.args.append(done.arguments());
                     } else if (ev.isCompleted()) {
                         listener.onChunk(new ChatChunk(null, FinishReason.STOP));
                     } else if (ev.isFailed()) {
@@ -94,6 +128,13 @@ public final class OpenAIResponsesModel implements ChatModel {
                         throw new IllegalStateException("OpenAI responses stream error");
                     }
                 }
+            }
+            if (!toolCallAccumulators.isEmpty()) {
+                List<ToolCall> calls = new ArrayList<ToolCall>();
+                for (ToolCallAccumulator acc : toolCallAccumulators.values()) {
+                    calls.add(acc.toToolCall());
+                }
+                listener.onChunk(new ChatChunk(null, null, calls, FinishReason.TOOL_CALLS));
             }
             listener.onDone();
         } catch (Throwable t) {
@@ -281,6 +322,7 @@ public final class OpenAIResponsesModel implements ChatModel {
 
     private ChatResponse toResponse(Response r, String model) {
         StringBuilder text = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<ToolCall>();
 
         for (ResponseOutputItem item : r.output()) {
@@ -294,6 +336,20 @@ public final class OpenAIResponsesModel implements ChatModel {
             } else if (item.isFunctionCall()) {
                 ResponseFunctionToolCall fc = item.asFunctionCall();
                 toolCalls.add(new ToolCall(fc.callId(), fc.name(), fc.arguments()));
+            } else if (item.isReasoning()) {
+                ResponseReasoningItem ri = item.asReasoning();
+                if (ri.content().isPresent()) {
+                    for (ResponseReasoningItem.Content part : ri.content().get()) {
+                        if (part.text() != null) {
+                            reasoning.append(part.text());
+                        }
+                    }
+                }
+                if (ri.summary() != null) {
+                    for (ResponseReasoningItem.Summary summary : ri.summary()) {
+                        reasoning.append(summary.text());
+                    }
+                }
             }
         }
 
@@ -304,6 +360,7 @@ public final class OpenAIResponsesModel implements ChatModel {
         }
         return ChatResponse.builder()
                 .content(text.toString())
+                .reasoning(reasoning.length() == 0 ? null : reasoning.toString())
                 .toolCalls(toolCalls)
                 .finishReason(toolCalls.isEmpty() ? FinishReason.STOP : FinishReason.TOOL_CALLS)
                 .usage(usage)

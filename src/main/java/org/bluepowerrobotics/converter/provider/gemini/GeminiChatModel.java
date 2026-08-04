@@ -83,6 +83,7 @@ public final class GeminiChatModel implements ChatModel {
             ResponseStream<GenerateContentResponse> stream =
                     clientFor(request).models.generateContentStream(
                             effectiveModel(request), built.contents, built.config);
+            List<ToolCall> toolCalls = new ArrayList<ToolCall>();
             Iterator<GenerateContentResponse> it = stream.iterator();
             while (it.hasNext()) {
                 GenerateContentResponse chunk = it.next();
@@ -94,7 +95,19 @@ public final class GeminiChatModel implements ChatModel {
                         && candidate.content().get().parts().isPresent()) {
                     for (Part part : candidate.content().get().parts().get()) {
                         if (part.text().isPresent()) {
-                            listener.onChunk(new ChatChunk(part.text().get(), null));
+                            if (part.thought().isPresent() && part.thought().get()) {
+                                listener.onChunk(new ChatChunk(null, part.text().get(), null));
+                            } else {
+                                listener.onChunk(new ChatChunk(part.text().get(), null));
+                            }
+                        } else if (part.functionCall().isPresent()) {
+                            FunctionCall fc = part.functionCall().get();
+                            toolCalls.add(new ToolCall(
+                                    null,
+                                    fc.name().isPresent() ? fc.name().get() : null,
+                                    fc.args().isPresent()
+                                            ? Json.toJson(fc.args().get())
+                                            : "{}"));
                         }
                     }
                 }
@@ -102,6 +115,9 @@ public final class GeminiChatModel implements ChatModel {
                     listener.onChunk(new ChatChunk(
                             null, toFinishReason(candidate.finishReason().get())));
                 }
+            }
+            if (!toolCalls.isEmpty()) {
+                listener.onChunk(new ChatChunk(null, null, toolCalls, FinishReason.TOOL_CALLS));
             }
             listener.onDone();
         } catch (Throwable t) {
@@ -348,6 +364,7 @@ public final class GeminiChatModel implements ChatModel {
 
     private ChatResponse toResponse(GenerateContentResponse r, String model) {
         StringBuilder text = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<ToolCall>();
         FinishReason fr = null;
         if (r.candidates().isPresent() && !r.candidates().get().isEmpty()) {
@@ -356,7 +373,11 @@ public final class GeminiChatModel implements ChatModel {
                     && candidate.content().get().parts().isPresent()) {
                 for (Part part : candidate.content().get().parts().get()) {
                     if (part.text().isPresent()) {
-                        text.append(part.text().get());
+                        if (part.thought().isPresent() && part.thought().get()) {
+                            reasoning.append(part.text().get());
+                        } else {
+                            text.append(part.text().get());
+                        }
                     } else if (part.functionCall().isPresent()) {
                         FunctionCall fc = part.functionCall().get();
                         toolCalls.add(new ToolCall(
@@ -384,6 +405,7 @@ public final class GeminiChatModel implements ChatModel {
         }
         return ChatResponse.builder()
                 .content(text.toString())
+                .reasoning(reasoning.length() == 0 ? null : reasoning.toString())
                 .toolCalls(toolCalls)
                 .finishReason(fr)
                 .usage(usage)

@@ -12,6 +12,8 @@ import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
 import com.anthropic.models.messages.MessageParam;
 import com.anthropic.models.messages.RawContentBlockDelta;
+import com.anthropic.models.messages.RawContentBlockDeltaEvent;
+import com.anthropic.models.messages.RawContentBlockStartEvent;
 import com.anthropic.models.messages.RawMessageStreamEvent;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
@@ -47,6 +49,7 @@ import org.bluepowerrobotics.converter.core.ToolCall;
 import org.bluepowerrobotics.converter.core.ToolDefinition;
 import org.bluepowerrobotics.converter.core.Usage;
 import org.bluepowerrobotics.converter.provider.ProviderConfig;
+import org.bluepowerrobotics.converter.util.ToolCallAccumulator;
 import org.bluepowerrobotics.converter.util.Json;
 
 /**
@@ -87,19 +90,46 @@ public final class AnthropicChatModel implements ChatModel {
             MessageCreateParams params = buildParams(request);
             StreamResponse<RawMessageStreamEvent> sr =
                     client.messages().createStreaming(withAuth(params, request));
+            java.util.Map<Long, ToolCallAccumulator> toolCallAccumulators =
+                    new java.util.LinkedHashMap<Long, ToolCallAccumulator>();
             try (java.util.stream.Stream<RawMessageStreamEvent> stream = sr.stream()) {
                 Iterator<RawMessageStreamEvent> it = stream.iterator();
                 while (it.hasNext()) {
                     RawMessageStreamEvent ev = it.next();
-                    if (ev.isContentBlockDelta()) {
+                    if (ev.isContentBlockStart()) {
+                        RawContentBlockStartEvent start = ev.asContentBlockStart();
+                        RawContentBlockStartEvent.ContentBlock block = start.contentBlock();
+                        if (block.isToolUse()) {
+                            ToolUseBlock toolUse = block.asToolUse();
+                            ToolCallAccumulator acc = new ToolCallAccumulator();
+                            acc.id = toolUse.id();
+                            acc.name = toolUse.name();
+                            toolCallAccumulators.put(start.index(), acc);
+                        }
+                    } else if (ev.isContentBlockDelta()) {
+                        RawContentBlockDeltaEvent deltaEvent = ev.asContentBlockDelta();
                         RawContentBlockDelta delta = ev.asContentBlockDelta().delta();
                         if (delta.isText()) {
                             listener.onChunk(new ChatChunk(delta.asText().text(), null));
+                        } else if (delta.isThinking()) {
+                            listener.onChunk(new ChatChunk(null, delta.asThinking().thinking(), null));
+                        } else if (delta.isInputJson()) {
+                            ToolCallAccumulator acc = toolCallAccumulators.get(deltaEvent.index());
+                            if (acc != null) {
+                                acc.args.append(delta.asInputJson().partialJson());
+                            }
                         }
                     } else if (ev.isMessageStop()) {
                         listener.onChunk(new ChatChunk(null, FinishReason.STOP));
                     }
                 }
+            }
+            if (!toolCallAccumulators.isEmpty()) {
+                List<ToolCall> calls = new ArrayList<ToolCall>();
+                for (ToolCallAccumulator acc : toolCallAccumulators.values()) {
+                    calls.add(acc.toToolCall());
+                }
+                listener.onChunk(new ChatChunk(null, null, calls, FinishReason.TOOL_CALLS));
             }
             listener.onDone();
         } catch (Throwable t) {
@@ -310,12 +340,15 @@ public final class AnthropicChatModel implements ChatModel {
 
     private ChatResponse toResponse(Message message, String model) {
         StringBuilder text = new StringBuilder();
+        StringBuilder reasoning = new StringBuilder();
         List<ToolCall> toolCalls = new ArrayList<ToolCall>();
 
         for (ContentBlock block : message.content()) {
             if (block.isText()) {
                 TextBlock tb = block.asText();
                 text.append(tb.text());
+            } else if (block.isThinking()) {
+                reasoning.append(block.asThinking().thinking());
             } else if (block.isToolUse()) {
                 ToolUseBlock tu = block.asToolUse();
                 toolCalls.add(new ToolCall(tu.id(), tu.name(), tu._input().toString()));
@@ -331,6 +364,7 @@ public final class AnthropicChatModel implements ChatModel {
         Usage usage = new Usage(u.inputTokens(), u.outputTokens(), null);
         return ChatResponse.builder()
                 .content(text.toString())
+                .reasoning(reasoning.length() == 0 ? null : reasoning.toString())
                 .toolCalls(toolCalls)
                 .finishReason(fr)
                 .usage(usage)
