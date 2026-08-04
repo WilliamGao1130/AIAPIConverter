@@ -1,0 +1,20 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "threads": 8,
+  "endpoints": ["chat", "responses", "anthropic"],
+  "endpointBackends": {
+    "chat": {
+      "type": "openai-chat",
+      "apiKey": "sk-xxxxxxxxxxxxxxxx",
+      "baseUrl": "https://api.deepseek.com",
+      "model": "deepseek-v4-flash"
+    }
+  },
+  "backend": {
+    "type": "dashscope",
+    "apiKey": "sk-xxxxxxxxxxxxxxxx",
+    "baseUrl": "https://dashscope.aliyuncs.com/api/v1",
+    "model": "qwen-plus"
+  }
+}

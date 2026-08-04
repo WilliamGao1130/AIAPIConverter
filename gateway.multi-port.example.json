@@ -1,0 +1,37 @@
+{
+  "gateways": [
+    {
+      "host": "127.0.0.1",
+      "port": 19725,
+      "endpoints": ["chat", "responses"],
+      "forceModel": "deepseek-v4-flash",
+      "backend": {
+        "type": "anthropic",
+        "apiKey": "sk-deepseek-xxx",
+        "baseUrl": "https://api.deepseek.com/anthropic",
+        "model": "deepseek-v4-flash"
+      }
+    },
+    {
+      "host": "127.0.0.1",
+      "port": 19726,
+      "endpoints": ["chat"],
+      "backend": {
+        "type": "openai-chat",
+        "apiKey": "sk-openai-xxx",
+        "baseUrl": "https://api.openai.com/v1",
+        "model": "gpt-4o"
+      }
+    },
+    {
+      "host": "127.0.0.1",
+      "port": 19727,
+      "endpoints": ["chat"],
+      "backend": {
+        "type": "dashscope",
+        "apiKey": "sk-dashscope-xxx",
+        "model": "qwen-plus"
+      }
+    }
+  ]
+}
