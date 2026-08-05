@@ -18,6 +18,9 @@ import com.anthropic.models.messages.RawMessageStreamEvent;
 import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
+import com.anthropic.models.messages.ThinkingConfigDisabled;
+import com.anthropic.models.messages.ThinkingConfigEnabled;
+import com.anthropic.models.messages.ThinkingConfigParam;
 import com.anthropic.models.messages.Tool;
 import com.anthropic.models.messages.ToolChoiceAuto;
 import com.anthropic.models.messages.ToolChoiceAny;
@@ -173,7 +176,34 @@ public final class AnthropicChatModel implements ChatModel {
         if (request.getToolChoice() != null) {
             b.toolChoice(toToolChoice(request));
         }
+        if (request.getReasoningEffort() != null) {
+            if (request.getReasoningEffort() == ChatRequest.ReasoningEffort.NONE) {
+                b.thinking(ThinkingConfigParam.ofDisabled(
+                        ThinkingConfigDisabled.builder().build()));
+            } else {
+                b.thinking(ThinkingConfigParam.ofEnabled(
+                        ThinkingConfigEnabled.builder()
+                                .budgetTokens(effortToBudget(request.getReasoningEffort()))
+                                .build()));
+            }
+        }
         return b.build();
+    }
+
+    /** Claude thinking budget：低/中/高/极高 对应 2048/8192/16384/32000 tokens。 */
+    private static long effortToBudget(ChatRequest.ReasoningEffort effort) {
+        switch (effort) {
+            case LOW:
+                return 2048L;
+            case MEDIUM:
+                return 8192L;
+            case HIGH:
+                return 16384L;
+            case XHIGH:
+                return 32000L;
+            default:
+                return 8192L;
+        }
     }
 
     private MessageCreateParams withAuth(MessageCreateParams params, ChatRequest request) {

@@ -6,6 +6,8 @@ import com.openai.client.okhttp.OpenAIOkHttpClient;
 import com.openai.core.JsonValue;
 import com.openai.core.http.StreamResponse;
 import com.openai.models.responses.EasyInputMessage;
+import com.openai.models.Reasoning;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.responses.ResponseFunctionCallArgumentsDeltaEvent;
 import com.openai.models.responses.ResponseFunctionCallArgumentsDoneEvent;
 import com.openai.models.responses.FunctionTool;
@@ -209,7 +211,28 @@ public final class OpenAIResponsesModel implements ChatModel {
         if (request.getResponseFormat() != null) {
             applyResponseFormat(b, request);
         }
+        if (request.getReasoningEffort() != null
+                && request.getReasoningEffort() != ChatRequest.ReasoningEffort.NONE) {
+            b.reasoning(Reasoning.builder()
+                    .effort(toOpenAIEffort(request.getReasoningEffort()))
+                    .build());
+        }
         return b.build();
+    }
+
+    private static ReasoningEffort toOpenAIEffort(ChatRequest.ReasoningEffort effort) {
+        switch (effort) {
+            case LOW:
+                return ReasoningEffort.LOW;
+            case MEDIUM:
+                return ReasoningEffort.MEDIUM;
+            case HIGH:
+                return ReasoningEffort.HIGH;
+            case XHIGH:
+                return ReasoningEffort.XHIGH;
+            default:
+                return ReasoningEffort.MEDIUM;
+        }
     }
 
     private static EasyInputMessage toUserInput(ChatMessage m) {

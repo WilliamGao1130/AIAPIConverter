@@ -16,6 +16,7 @@ import com.google.genai.types.GenerateContentResponseUsageMetadata;
 import com.google.genai.types.HttpOptions;
 import com.google.genai.types.Part;
 import com.google.genai.types.Schema;
+import com.google.genai.types.ThinkingConfig;
 import com.google.genai.types.Tool;
 import com.google.genai.types.ToolConfig;
 import java.io.ByteArrayOutputStream;
@@ -216,7 +217,29 @@ public final class GeminiChatModel implements ChatModel {
                 }
             }
         }
+        if (request.getReasoningEffort() != null
+                && request.getReasoningEffort() != ChatRequest.ReasoningEffort.NONE) {
+            cb.thinkingConfig(ThinkingConfig.builder()
+                    .thinkingBudget(effortToBudget(request.getReasoningEffort()))
+                    .build());
+        }
         return new BuildResult(contents, cb.build());
+    }
+
+    /** Gemini thinkingBudget：低/中/高/极高 对应 1024/2048/4096/8192 tokens。 */
+    private static int effortToBudget(ChatRequest.ReasoningEffort effort) {
+        switch (effort) {
+            case LOW:
+                return 1024;
+            case MEDIUM:
+                return 2048;
+            case HIGH:
+                return 4096;
+            case XHIGH:
+                return 8192;
+            default:
+                return 2048;
+        }
     }
 
     private static List<Part> toParts(ChatMessage m) throws IOException {

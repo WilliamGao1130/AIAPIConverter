@@ -6,6 +6,15 @@ import java.util.List;
 
 /** 统一的对话请求。 */
 public final class ChatRequest {
+    /** 深度思考强度；NONE 表示关闭（模型自行决定或按默认）。 */
+    public enum ReasoningEffort {
+        NONE,
+        LOW,
+        MEDIUM,
+        HIGH,
+        XHIGH
+    }
+
     private final String model;
     private final List<ChatMessage> messages;
     private final List<ToolDefinition> tools;
@@ -20,6 +29,7 @@ public final class ChatRequest {
     private final ResponseFormat responseFormat;
     private final String responseFormatSchema;
     private final String responseFormatName;
+    private final ReasoningEffort reasoningEffort;
     private final String apiKey;
 
     private ChatRequest(Builder b) {
@@ -43,6 +53,7 @@ public final class ChatRequest {
         this.responseFormat = b.responseFormat;
         this.responseFormatSchema = b.responseFormatSchema;
         this.responseFormatName = b.responseFormatName;
+        this.reasoningEffort = b.reasoningEffort;
         this.apiKey = b.apiKey;
     }
 
@@ -106,6 +117,11 @@ public final class ChatRequest {
         return responseFormatName;
     }
 
+    /** 深度思考强度；null/NONE 表示不设置。 */
+    public ReasoningEffort getReasoningEffort() {
+        return reasoningEffort;
+    }
+
     /** 请求级 API key（来自客户端请求头），优先于网关配置的 key。 */
     public String getApiKey() {
         return apiKey;
@@ -131,6 +147,7 @@ public final class ChatRequest {
         private ResponseFormat responseFormat;
         private String responseFormatSchema;
         private String responseFormatName;
+        private ReasoningEffort reasoningEffort;
         private String apiKey;
 
         private Builder() {
@@ -219,6 +236,11 @@ public final class ChatRequest {
 
         public Builder responseFormatName(String responseFormatName) {
             this.responseFormatName = responseFormatName;
+            return this;
+        }
+
+        public Builder reasoningEffort(ReasoningEffort reasoningEffort) {
+            this.reasoningEffort = reasoningEffort;
             return this;
         }
 

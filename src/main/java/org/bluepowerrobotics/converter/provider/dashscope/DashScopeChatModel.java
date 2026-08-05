@@ -127,10 +127,34 @@ public final class DashScopeChatModel implements ChatModel {
         if (request.getResponseFormat() != null) {
             b.responseFormat(toDashScopeResponseFormat(request));
         }
+        if (request.getReasoningEffort() != null) {
+            boolean enabled =
+                    request.getReasoningEffort() != ChatRequest.ReasoningEffort.NONE;
+            b.enableThinking(enabled);
+            if (enabled) {
+                b.thinkingBudget(effortToBudget(request.getReasoningEffort()));
+            }
+        }
         if (streaming) {
             b.incrementalOutput(true);
         }
         return b.build();
+    }
+
+    /** DashScope thinkingBudget：低/中/高/极高 对应 512/1024/2048/4096 tokens。 */
+    private static Integer effortToBudget(ChatRequest.ReasoningEffort effort) {
+        switch (effort) {
+            case LOW:
+                return 512;
+            case MEDIUM:
+                return 1024;
+            case HIGH:
+                return 2048;
+            case XHIGH:
+                return 4096;
+            default:
+                return 1024;
+        }
     }
 
     private String effectiveModel(ChatRequest request) {
