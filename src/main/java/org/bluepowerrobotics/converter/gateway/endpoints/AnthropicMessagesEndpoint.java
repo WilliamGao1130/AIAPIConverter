@@ -78,6 +78,7 @@ public final class AnthropicMessagesEndpoint implements HttpHandler {
                 .stop(RequestParsing.stringArray(body, "stop_sequences"))
                 .maxTokens(RequestParsing.intField(body, "max_tokens"));
         RequestParsing.applyToolChoice(body, b);
+        RequestParsing.applyReasoning(body, b);
         return b.build();
     }
 

@@ -80,6 +80,7 @@ public final class ChatCompletionsEndpoint implements HttpHandler {
         b.maxTokens(maxTokens);
         RequestParsing.applyToolChoice(body, b);
         RequestParsing.applyResponseFormat(body, b);
+        RequestParsing.applyReasoning(body, b);
         return b.build();
     }
 
@@ -108,6 +109,10 @@ public final class ChatCompletionsEndpoint implements HttpHandler {
                 try {
                     if (chunk.getContent() != null) {
                         writer.data(chunkJson(streamId, request, chunk.getContent(), null));
+                    }
+                    if (chunk.getReasoning() != null) {
+                        writer.data(chunkJson(streamId, request, chunk.getReasoning(),
+                                null, true));
                     }
                     if (chunk.getFinishReason() != null) {
                         writer.data(chunkJson(streamId, request, null,
@@ -153,11 +158,20 @@ public final class ChatCompletionsEndpoint implements HttpHandler {
     }
 
     private String chunkJson(String id, ChatRequest request, String content, String finishReason) {
+        return chunkJson(id, request, content, finishReason, false);
+    }
+
+    private String chunkJson(String id, ChatRequest request, String content,
+                             String finishReason, boolean reasoning) {
         ObjectNode choice = Json.MAPPER.createObjectNode();
         choice.put("index", 0);
         ObjectNode delta = Json.MAPPER.createObjectNode();
         if (content != null) {
-            delta.put("content", content);
+            if (reasoning) {
+                delta.put("reasoning_content", content);
+            } else {
+                delta.put("content", content);
+            }
         }
         choice.set("delta", delta);
         if (finishReason != null) {
@@ -184,6 +198,9 @@ public final class ChatCompletionsEndpoint implements HttpHandler {
         message.putNull("content");
         if (r.getContent() != null) {
             message.put("content", r.getContent());
+        }
+        if (r.getReasoning() != null) {
+            message.put("reasoning_content", r.getReasoning());
         }
         if (!r.getToolCalls().isEmpty()) {
             ArrayNode calls = Json.MAPPER.createArrayNode();

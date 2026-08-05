@@ -77,6 +77,7 @@ public final class ResponsesEndpoint implements HttpHandler {
         RequestParsing.applyToolChoice(body, b);
         RequestParsing.applyResponseFormat(body, b);
         RequestParsing.applyResponsesTextFormat(body, b);
+        RequestParsing.applyReasoning(body, b);
         return b.build();
     }
 

@@ -401,6 +401,62 @@ final class RequestParsing {
         }
     }
 
+    /**
+     * 解析各种风格的思考控制到统一模型：
+     * OpenAI Chat: reasoning_effort: "none|low|medium|high|xhigh|max"
+     * OpenAI Responses / Anthropic 兼容: reasoning: {effort: "none|low|medium|high|max"}
+     * Anthropic 官方: thinking: {type: "enabled|disabled"}
+     */
+    static void applyReasoning(JsonNode body, ChatRequest.Builder b) {
+        ChatRequest.ReasoningEffort effort = null;
+        String raw = null;
+        JsonNode re = body.get("reasoning_effort");
+        if (re != null && re.isTextual()) {
+            raw = re.asText();
+        } else {
+            JsonNode reasoning = body.get("reasoning");
+            if (reasoning != null && reasoning.isObject()) {
+                JsonNode e = reasoning.get("effort");
+                if (e != null && e.isTextual()) {
+                    raw = e.asText();
+                }
+            }
+        }
+        if (raw != null) {
+            effort = parseEffort(raw);
+        }
+        if (effort == null) {
+            JsonNode thinking = body.get("thinking");
+            if (thinking != null && thinking.isObject()
+                    && "disabled".equals(thinking.path("type").asText(""))) {
+                effort = ChatRequest.ReasoningEffort.NONE;
+            }
+        }
+        if (effort != null) {
+            b.reasoningEffort(effort);
+        }
+    }
+
+    private static ChatRequest.ReasoningEffort parseEffort(String raw) {
+        String v = raw.trim().toLowerCase();
+        if (v.isEmpty() || "none".equals(v) || "off".equals(v) || "disabled".equals(v)) {
+            return ChatRequest.ReasoningEffort.NONE;
+        }
+        if ("minimal".equals(v) || "low".equals(v)) {
+            return ChatRequest.ReasoningEffort.LOW;
+        }
+        if ("medium".equals(v) || "med".equals(v)) {
+            return ChatRequest.ReasoningEffort.MEDIUM;
+        }
+        if ("high".equals(v)) {
+            return ChatRequest.ReasoningEffort.HIGH;
+        }
+        if ("xhigh".equals(v) || "max".equals(v) || "maximum".equals(v)) {
+            return ChatRequest.ReasoningEffort.XHIGH;
+        }
+        return null;
+    }
+
     /** 解析 OpenAI Responses 风格 text.format。 */
     static void applyResponsesTextFormat(JsonNode body, ChatRequest.Builder b) {
         JsonNode text = body.get("text");

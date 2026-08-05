@@ -26,6 +26,7 @@ import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
 import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import com.openai.models.ResponseFormatJsonObject;
 import com.openai.models.ResponseFormatJsonSchema;
+import com.openai.models.ReasoningEffort;
 import com.openai.models.chat.completions.ChatCompletionToolChoiceOption;
 import com.openai.models.chat.completions.ChatCompletionNamedToolChoice;
 import com.openai.models.chat.completions.ChatCompletionToolMessageParam;
@@ -154,7 +155,7 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
     }
 
     private ChatCompletionCreateParams buildParams(ChatRequest request) {
-        ChatCompletionCreateParams.Builder b = ChatCompletionCreateParams.builder()
+        ChatCompletionCreateParams.Body.Builder b = ChatCompletionCreateParams.Body.builder()
                 .model(effectiveModel(request));
         for (ChatMessage m : request.getMessages()) {
             b.addMessage(toMessageParam(m));
@@ -184,7 +185,59 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
         if (request.getResponseFormat() != null) {
             applyResponseFormat(b, request);
         }
-        return b.build();
+        applyReasoning(b, request.getReasoningEffort());
+        return ChatCompletionCreateParams.builder().body(b.build()).build();
+    }
+
+    /**
+     * 深度思考控制：chat-completions 适配器此前完全没有透传 reasoning effort，
+     * 导致 DeepSeek V4 这类默认开启思考的兼容端点对“关闭/强度”无响应。
+     * - NONE：对 DeepSeek 显式发送 thinking.type=disabled（其 OpenAI 兼容接口
+     *   默认开思考，必须显式关闭）；其他端点省略该参数（保持官方 OpenAI 行为）。
+     * - LOW/MEDIUM/HIGH：映射为 reasoning_effort。
+     * - XHIGH：DeepSeek 映射为 max（其文档接受 low/high/max，xhigh 会退化为
+     *   high）；官方 OpenAI 聊天端点没有 xhigh，收敛为 high。
+     */
+    private void applyReasoning(
+            ChatCompletionCreateParams.Body.Builder b, ChatRequest.ReasoningEffort effort) {
+        applyReasoning(b, effort, isDeepSeekCompatible());
+    }
+
+    static void applyReasoning(
+            ChatCompletionCreateParams.Body.Builder b,
+            ChatRequest.ReasoningEffort effort,
+            boolean deepSeekCompatible) {
+        if (effort == null) {
+            return;
+        }
+        if (effort == ChatRequest.ReasoningEffort.NONE) {
+            if (deepSeekCompatible) {
+                b.putAdditionalProperty("thinking",
+                        JsonValue.fromJsonNode(Json.readTree("{\"type\":\"disabled\"}")));
+            }
+            return;
+        }
+        b.reasoningEffort(toOpenAIEffort(effort, deepSeekCompatible));
+    }
+
+    private boolean isDeepSeekCompatible() {
+        return baseUrl != null && baseUrl.toLowerCase().contains("deepseek.com");
+    }
+
+    static ReasoningEffort toOpenAIEffort(
+            ChatRequest.ReasoningEffort effort, boolean deepSeekCompatible) {
+        switch (effort) {
+            case LOW:
+                return ReasoningEffort.LOW;
+            case MEDIUM:
+                return ReasoningEffort.MEDIUM;
+            case HIGH:
+                return ReasoningEffort.HIGH;
+            case XHIGH:
+                return deepSeekCompatible ? ReasoningEffort.MAX : ReasoningEffort.HIGH;
+            default:
+                return ReasoningEffort.MEDIUM;
+        }
     }
 
     private ChatCompletionMessageParam toMessageParam(ChatMessage m) {
@@ -309,7 +362,7 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
     }
 
     private static void applyResponseFormat(
-            ChatCompletionCreateParams.Builder cb, ChatRequest request) {
+            ChatCompletionCreateParams.Body.Builder cb, ChatRequest request) {
         if (request.getResponseFormat()
                 == org.bluepowerrobotics.converter.core.ResponseFormat.JSON_OBJECT) {
             cb.responseFormat(ResponseFormatJsonObject.builder()

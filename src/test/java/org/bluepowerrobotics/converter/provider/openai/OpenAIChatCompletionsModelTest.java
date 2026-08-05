@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.sun.net.httpserver.HttpServer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -11,7 +12,12 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import com.openai.models.ReasoningEffort;
+import com.openai.models.chat.completions.ChatCompletionCreateParams;
+import com.openai.models.chat.completions.ChatCompletionMessageParam;
+import com.openai.models.chat.completions.ChatCompletionUserMessageParam;
 import org.bluepowerrobotics.converter.core.ChatMessage;
 import org.bluepowerrobotics.converter.core.ChatRequest;
 import org.bluepowerrobotics.converter.core.ChatResponse;
@@ -65,6 +71,63 @@ class OpenAIChatCompletionsModelTest {
                     "content 不应以 null 序列化（修复前这里会 NPE）");
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** 思考强度必须真正映射：DeepSeek 兼容端点 NONE 显式关思考、XHIGH 用 max。 */
+    @Test
+    void reasoningEffortIsForwardedForDeepSeek() {
+        assertReasoning(ChatRequest.ReasoningEffort.NONE, true,
+                null, "disabled", true);
+        assertReasoning(ChatRequest.ReasoningEffort.LOW, true,
+                "low", null, false);
+        assertReasoning(ChatRequest.ReasoningEffort.MEDIUM, true,
+                "medium", null, false);
+        assertReasoning(ChatRequest.ReasoningEffort.HIGH, true,
+                "high", null, false);
+        assertReasoning(ChatRequest.ReasoningEffort.XHIGH, true,
+                "max", null, false);
+    }
+
+    /** 官方 OpenAI 端点不接受 thinking/xhigh：NONE 省略、XHIGH 收敛为 high。 */
+    @Test
+    void reasoningEffortIsForwardedForPlainOpenAI() {
+        assertReasoning(null, false, null, null, false);
+        assertReasoning(ChatRequest.ReasoningEffort.NONE, false,
+                null, null, false);
+        assertReasoning(ChatRequest.ReasoningEffort.XHIGH, false,
+                "high", null, false);
+    }
+
+    private static void assertReasoning(
+            ChatRequest.ReasoningEffort effort,
+            boolean deepSeek,
+            String expectedEffort,
+            String expectedThinkingType,
+            boolean expectThinkingField) {
+        ChatCompletionCreateParams.Body.Builder b = ChatCompletionCreateParams.Body.builder()
+                .model("m")
+                .addMessage(ChatCompletionMessageParam.ofUser(
+                        ChatCompletionUserMessageParam.builder().content("hi").build()));
+        OpenAIChatCompletionsModel.applyReasoning(b, effort, deepSeek);
+        ChatCompletionCreateParams.Body body = b.build();
+
+        java.util.Optional<ReasoningEffort> actual = body.reasoningEffort();
+        if (expectedEffort == null) {
+            assertFalse(actual.isPresent(), "effort=" + effort + " deepSeek=" + deepSeek
+                    + " 不应设置 reasoning_effort");
+        } else {
+            assertTrue(actual.isPresent(), "effort=" + effort + " 应设置 reasoning_effort");
+            assertEquals(expectedEffort, actual.get().asString());
+        }
+
+        Map<String, com.openai.core.JsonValue> extra = body._additionalProperties();
+        assertEquals(expectThinkingField, extra.containsKey("thinking"),
+                "effort=" + effort + " deepSeek=" + deepSeek + " thinking 字段存在性不符");
+        if (expectThinkingField) {
+            Map<String, Object> obj = extra.get("thinking")
+                    .convert(new TypeReference<Map<String, Object>>() {});
+            assertEquals(expectedThinkingType, obj.get("type"));
         }
     }
 
