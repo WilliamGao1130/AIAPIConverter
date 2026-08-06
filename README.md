@@ -155,11 +155,10 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 ## 作为库嵌入其他 Java 软件
 
-核心是 `org.bluepowerrobotics.converter.core.ChatModel` 接口，只有几个方法：
+核心是 `core.org.bluepowerrobotics.lmau.converter.ChatModel` 接口，只有几个方法：
 
 ```java
-import org.bluepowerrobotics.converter.core.*;
-import org.bluepowerrobotics.converter.provider.*;
+
 
 ProviderConfig config = ProviderConfig.builder()
         .type(ProviderConfig.ProviderType.DASHSCOPE)
@@ -167,13 +166,16 @@ ProviderConfig config = ProviderConfig.builder()
         .model("qwen-plus")
         .build();
 
-try (ChatModel model = ChatModels.create(config)) {
-    ChatRequest req = ChatRequest.builder()
-            .addMessage(ChatMessage.user("你好"))
-            .build();
-    ChatResponse resp = model.complete(req);   // 或 model.stream(req, listener)
-    System.out.println(resp.getContent());
-}
+try(
+ChatModel model = ChatModels.create(config)){
+ChatRequest req = ChatRequest.builder()
+        .addMessage(ChatMessage.user("你好"))
+        .build();
+ChatResponse resp = model.complete(req);   // 或 model.stream(req, listener)
+    System.out.
+
+println(resp.getContent());
+        }
 ```
 
 ### 依赖方式
