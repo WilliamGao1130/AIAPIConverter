@@ -262,6 +262,10 @@ public final class OpenAIChatCompletionsModel implements ChatModel {
         // assistant
         ChatCompletionAssistantMessageParam.Builder ab = ChatCompletionAssistantMessageParam.builder()
                 .content(nonNull(m.getContent()));
+        if (m.getReasoning() != null) {
+            // DeepSeek 等要求 thinking 模式下把 reasoning_content 原样回传
+            ab.putAdditionalProperty("reasoning_content", JsonValue.from(m.getReasoning()));
+        }
         if (m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
             List<ChatCompletionMessageToolCall> calls =
                     new ArrayList<ChatCompletionMessageToolCall>();

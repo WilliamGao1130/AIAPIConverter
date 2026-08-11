@@ -58,7 +58,8 @@ public final class AnthropicMessagesEndpoint implements HttpHandler {
     }
 
     private ChatRequest toRequest(JsonNode body, String clientApiKey) {
-        List<ChatMessage> messages = RequestParsing.anthropicMessages(body.get("messages"));
+        List<ChatMessage> messages = RequestParsing.sanitizeDanglingToolCalls(
+                RequestParsing.anthropicMessages(body.get("messages")));
         String system = anthropicSystem(body.get("system"));
         if (system != null) {
             messages.add(0, ChatMessage.system(system));

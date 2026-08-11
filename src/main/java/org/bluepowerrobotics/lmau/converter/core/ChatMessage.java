@@ -8,6 +8,7 @@ import java.util.List;
 public final class ChatMessage {
     private final ChatRole role;
     private final String content;
+    private final String reasoning;
     private final String name;
     private final String toolCallId;
     private final List<ToolCall> toolCalls;
@@ -16,6 +17,7 @@ public final class ChatMessage {
     private ChatMessage(Builder b) {
         this.role = b.role == null ? ChatRole.USER : b.role;
         this.content = b.content;
+        this.reasoning = b.reasoning;
         this.name = b.name;
         this.toolCallId = b.toolCallId;
         this.toolCalls = b.toolCalls == null
@@ -54,6 +56,11 @@ public final class ChatMessage {
         return content;
     }
 
+    /** 思考内容（DeepSeek 等要求 tool call 回合回传 reasoning_content）。 */
+    public String getReasoning() {
+        return reasoning;
+    }
+
     public String getName() {
         return name;
     }
@@ -86,6 +93,7 @@ public final class ChatMessage {
     public static final class Builder {
         private ChatRole role;
         private String content;
+        private String reasoning;
         private String name;
         private String toolCallId;
         private List<ToolCall> toolCalls;
@@ -101,6 +109,11 @@ public final class ChatMessage {
 
         public Builder content(String content) {
             this.content = content;
+            return this;
+        }
+
+        public Builder reasoning(String reasoning) {
+            this.reasoning = reasoning;
             return this;
         }
 

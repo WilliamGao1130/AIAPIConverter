@@ -67,7 +67,7 @@ public final class ResponsesEndpoint implements HttpHandler {
                         : body.get("model") != null && !body.get("model").isNull()
                         ? body.get("model").asText()
                         : defaultModel)
-                .messages(parseInput(body))
+                .messages(RequestParsing.sanitizeDanglingToolCalls(parseInput(body)))
                 .tools(RequestParsing.openAITools(body.get("tools")))
                 .stream(body.path("stream").asBoolean(false))
                 .temperature(RequestParsing.doubleField(body, "temperature"))
@@ -117,7 +117,26 @@ public final class ResponsesEndpoint implements HttpHandler {
                 if ("system".equals(role)) {
                     out.add(ChatMessage.system(content));
                 } else if ("assistant".equals(role)) {
-                    out.add(ChatMessage.assistant(content));
+                    ChatMessage.Builder b = ChatMessage.builder()
+                            .role(ChatRole.ASSISTANT)
+                            .content(content);
+                    String reasoning = RequestParsing.openAIReasoning(item);
+                    if (reasoning != null) {
+                        b.reasoning(reasoning);
+                    }
+                    // Responses 的 assistant message 也可能在 output 里带 function_call
+                    JsonNode output = item.get("output");
+                    if (output != null && output.isArray()) {
+                        for (JsonNode o : output) {
+                            if ("function_call".equals(o.path("type").asText(""))) {
+                                b.addToolCall(new ToolCall(
+                                        o.path("call_id").asText(null),
+                                        o.path("name").asText(null),
+                                        o.path("arguments").asText("{}")));
+                            }
+                        }
+                    }
+                    out.add(b.build());
                 } else {
                     out.add(ChatMessage.user(content));
                 }

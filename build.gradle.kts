@@ -40,12 +40,12 @@ tasks.test {
 }
 
 application {
-    mainClass.set("org.bluepowerrobotics.converter.Main")
+    mainClass.set("org.bluepowerrobotics.lmau.converter.Main")
 }
 
 tasks.jar {
     manifest {
-        attributes["Main-Class"] = "org.bluepowerrobotics.converter.Main"
+        attributes["Main-Class"] = "org.bluepowerrobotics.lmau.converter.Main"
         attributes["Implementation-Title"] = "AI API Converter"
         attributes["Implementation-Version"] = project.version
     }
@@ -56,7 +56,7 @@ tasks.register<Jar>("fatJar") {
     archiveClassifier.set("all")
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
-        attributes["Main-Class"] = "org.bluepowerrobotics.converter.Main"
+        attributes["Main-Class"] = "org.bluepowerrobotics.lmau.converter.Main"
         attributes["Implementation-Title"] = "AI API Converter"
         attributes["Implementation-Version"] = project.version
     }

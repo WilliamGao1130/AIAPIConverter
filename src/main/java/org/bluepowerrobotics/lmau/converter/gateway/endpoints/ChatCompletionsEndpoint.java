@@ -65,7 +65,8 @@ public final class ChatCompletionsEndpoint implements HttpHandler {
                         : body.get("model") != null && !body.get("model").isNull()
                         ? body.get("model").asText()
                         : defaultModel)
-                .messages(RequestParsing.openAIMessages(body.get("messages")))
+                .messages(RequestParsing.sanitizeDanglingToolCalls(
+                        RequestParsing.openAIMessages(body.get("messages"))))
                 .tools(RequestParsing.openAITools(body.get("tools")))
                 .stream(body.path("stream").asBoolean(false))
                 .temperature(RequestParsing.doubleField(body, "temperature"))

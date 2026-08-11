@@ -2,8 +2,14 @@ package org.bluepowerrobotics.lmau.converter.gateway.endpoints;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.bluepowerrobotics.lmau.converter.core.ChatMessage;
 import org.bluepowerrobotics.lmau.converter.core.ChatRequest;
 import org.bluepowerrobotics.lmau.converter.core.ChatRole;
@@ -46,6 +52,44 @@ final class RequestParsing {
             return content.get("text").asText();
         }
         return content.asText();
+    }
+
+    /** 提取 assistant 消息中的思考内容（reasoning_content / reasoning / thinking 块）。 */
+    static String openAIReasoning(JsonNode message) {
+        if (message == null) {
+            return null;
+        }
+        JsonNode rc = message.get("reasoning_content");
+        if (rc != null && rc.isTextual()) {
+            return rc.asText();
+        }
+        JsonNode content = message.get("content");
+        if (content == null || !content.isArray()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode part : content) {
+            String type = part.path("type").asText("");
+            String text = null;
+            if ("reasoning".equals(type) || "reasoning_content".equals(type)) {
+                text = part.path("text").asText("");
+                if (text.isEmpty()) {
+                    text = part.path("summary").asText("");
+                }
+            } else if ("thinking".equals(type)) {
+                text = part.path("thinking").asText("");
+                if (text.isEmpty()) {
+                    text = part.path("text").asText("");
+                }
+            }
+            if (text != null && !text.isEmpty()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(text);
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
     }
 
     /**
@@ -117,6 +161,10 @@ final class RequestParsing {
         }
         if ("assistant".equals(role)) {
             ChatMessage.Builder b = ChatMessage.builder().role(ChatRole.ASSISTANT).content(content);
+            String reasoning = openAIReasoning(m);
+            if (reasoning != null) {
+                b.reasoning(reasoning);
+            }
             List<ContentPart> parts = openAIContentParts(m.get("content"));
             if (parts != null) {
                 b.contentParts(parts);
@@ -176,12 +224,94 @@ final class RequestParsing {
         return out;
     }
 
+    /**
+     * 清理残缺工具轮：assistant 发出了 tool call 但没有对应的 tool 响应
+     * （被用户打断、网络错误、客户端崩溃等）时，大多数上游 API 会直接 400。
+     * 这里把悬空的 tool call 转成普通文本占位保留上下文；孤立的 tool 消息
+     * （没有前置 assistant tool call）也转成文本，保证请求始终可用。
+     */
+    static List<ChatMessage> sanitizeDanglingToolCalls(List<ChatMessage> messages) {
+        if (messages == null || messages.isEmpty()) {
+            return messages;
+        }
+        List<ChatMessage> result = new ArrayList<ChatMessage>(messages);
+        // assistant 消息下标 -> 尚未收到响应的 tool call id 集合
+        Map<Integer, Set<String>> pending = new LinkedHashMap<Integer, Set<String>>();
+        for (int i = 0; i < result.size(); i++) {
+            ChatMessage m = result.get(i);
+            if (m.getRole() == ChatRole.ASSISTANT
+                    && m.getToolCalls() != null && !m.getToolCalls().isEmpty()) {
+                Set<String> ids = new LinkedHashSet<String>();
+                for (ToolCall tc : m.getToolCalls()) {
+                    ids.add(tc.getId());
+                }
+                pending.put(i, ids);
+            } else if (m.getRole() == ChatRole.TOOL) {
+                Integer owner = null;
+                String id = m.getToolCallId();
+                for (Map.Entry<Integer, Set<String>> e : pending.entrySet()) {
+                    if (id == null || e.getValue().contains(id)) {
+                        owner = e.getKey();
+                        break;
+                    }
+                }
+                if (owner != null) {
+                    Set<String> ids = pending.get(owner);
+                    ids.remove(id);
+                    if (ids.isEmpty()) {
+                        pending.remove(owner);
+                    }
+                } else {
+                    // 孤立 tool 消息：没有前置 assistant tool call，转为文本
+                    String content = m.getContent() == null ? "" : m.getContent();
+                    result.set(i, ChatMessage.user("[工具结果: " + content + "]"));
+                }
+            } else if (!pending.isEmpty()) {
+                // 出现非 tool 消息（新用户提问/新的 assistant 回合）：
+                // 之前未完成的 tool call 全部视为悬空
+                for (Integer idx : new ArrayList<Integer>(pending.keySet())) {
+                    sanitizeAssistant(result, idx);
+                }
+                pending.clear();
+            }
+        }
+        if (!pending.isEmpty()) {
+            for (Integer idx : new ArrayList<Integer>(pending.keySet())) {
+                sanitizeAssistant(result, idx);
+            }
+        }
+        return result;
+    }
+
+    private static void sanitizeAssistant(List<ChatMessage> messages, int index) {
+        ChatMessage m = messages.get(index);
+        StringBuilder sb = new StringBuilder(m.getContent() == null ? "" : m.getContent());
+        for (ToolCall tc : m.getToolCalls()) {
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append("[工具调用: ")
+                    .append(tc.getName() == null ? "?" : tc.getName())
+                    .append('(')
+                    .append(tc.getArgumentsJson() == null ? "{}" : tc.getArgumentsJson())
+                    .append(")]");
+        }
+        ChatMessage.Builder b = ChatMessage.builder()
+                .role(ChatRole.ASSISTANT)
+                .content(sb.toString());
+        if (m.getReasoning() != null) {
+            b.reasoning(m.getReasoning());
+        }
+        messages.set(index, b.build());
+    }
+
     private static ChatMessage anthropicMessage(JsonNode m) {
         String role = m.path("role").asText("user");
         JsonNode content = m.get("content");
         if ("assistant".equals(role) && content != null && content.isArray()) {
             ChatMessage.Builder b = ChatMessage.builder().role(ChatRole.ASSISTANT);
             StringBuilder text = new StringBuilder();
+            StringBuilder think = new StringBuilder();
             for (JsonNode block : content) {
                 String type = block.path("type").asText("");
                 if ("text".equals(type)) {
@@ -196,9 +326,23 @@ final class RequestParsing {
                             block.path("id").asText(null),
                             block.path("name").asText(null),
                             input == null ? "{}" : input.toString()));
+                } else if ("thinking".equals(type)) {
+                    String t = block.path("thinking").asText("");
+                    if (t.isEmpty()) {
+                        t = block.path("text").asText("");
+                    }
+                    if (!t.isEmpty()) {
+                        if (think.length() > 0) {
+                            think.append('\n');
+                        }
+                        think.append(t);
+                    }
                 }
             }
             b.content(text.toString());
+            if (think.length() > 0) {
+                b.reasoning(think.toString());
+            }
             return b.build();
         }
         if ("user".equals(role) && content != null && content.isArray()) {
