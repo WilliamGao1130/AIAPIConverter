@@ -1,10 +1,12 @@
 plugins {
     id("java-library")
     id("application")
+    id("maven-publish")
 }
 
 group = "org.bluepowerrobotics"
-version = "1.0-SNAPSHOT"
+// 版本号统一在 gradle.properties 的 version 一行调整；
+// 命令行可用 -Pversion=x.y.z 临时覆盖（如发布脚本/CI）。
 
 repositories {
     mavenCentral()
@@ -67,5 +69,27 @@ tasks.register<Jar>("fatJar") {
     }) {
         exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
         exclude("META-INF/versions/**/module-info.class", "module-info.class")
+    }
+}
+
+// Maven 发布：与 easytier-android-jni 同款方式，发布到本地/远程目录型 maven 仓库。
+// 用法：
+//   ./gradlew publish                                  # 默认发布到 build/maven-repo
+//   ./gradlew publish -PmavenRepoDir=<目录>             # 发布到指定目录（如 maven 仓库 checkout）
+//   ./gradlew publish -PmavenRepoDir=<目录> -Pversion=1.0.1
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("maven") {
+                from(components["java"])
+                artifactId = "AIAPIConverter"
+            }
+        }
+        repositories {
+            maven {
+                val repoDir = providers.gradleProperty("mavenRepoDir").orNull
+                url = uri(repoDir ?: layout.buildDirectory.dir("maven-repo").get().asFile)
+            }
+        }
     }
 }

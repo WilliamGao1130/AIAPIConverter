@@ -229,6 +229,40 @@ Interactions 接口**（Python/Go 已支持）。因此 Gemini 适配器目前�
 测试使用桩后端启动真实网关，覆盖三种前端协议的非流式/流式 JSON 形状、模型列表、健康检查、
 端点开关、多模态与 tool_choice/response_format 透传、错误响应，不需要真实 API key。
 
+## 发布到 Maven 仓库
+
+发布方式与 easytier-android-jni 相同：Gradle `maven-publish` 发布到目录型 maven 仓库
+（默认 `https://github.com/WilliamGao1130/maven`），版本号统一在 `gradle.properties` 的
+`version` 一行调整，命令行可用 `-Pversion=x.y.z` 覆盖。
+
+本地一键发布（自动 clone maven 仓库、发布、提交并推送）：
+
+```bash
+./publish-maven.sh              # 用 gradle.properties 里的 version（当前 1.0.0）
+./publish-maven.sh 1.0.1        # 或直接指定版本
+```
+
+只发布到本地目录（不推送远端）：
+
+```bash
+./gradlew publish -PmavenRepoDir=build/maven-repo
+```
+
+CI 发布：push 形如 `v1.0.1` 的 tag，或在 GitHub Actions 手动触发
+`.github/workflows/publish.yml` 并填入版本号（需在仓库 Secrets 配置
+`MAVEN_REPO_TOKEN`，用于向 maven 仓库推送）。
+
+消费方在 `build.gradle.kts` 中：
+
+```kotlin
+repositories {
+    maven { url = uri("https://raw.githubusercontent.com/WilliamGao1130/maven/main") }
+}
+dependencies {
+    implementation("org.bluepowerrobotics:AIAPIConverter:1.0.0")
+}
+```
+
 ## 主要限制
 
 - 多模态目前支持文本 + 图片（URL / data URL）；音频、视频、文件块会忽略。
